@@ -34,7 +34,7 @@ The example submits all three supported question types and prints the response a
 ## Python API
 
 ```python
-from llm2jev import JevRequest, LLM2Jev, Noul, TransformersBinaryBackend
+from llm2jev import JevRequest, LLM2Jev, Noul, TransformersBackend
 
 model_path = "/path/to/model"
 request = JevRequest(
@@ -47,7 +47,7 @@ request = JevRequest(
     },
 )
 
-backend = TransformersBinaryBackend(model_path)
+backend = TransformersBackend(model_path)
 response = LLM2Jev(backend=backend).evaluate(request)
 print(response.to_dict())
 ```

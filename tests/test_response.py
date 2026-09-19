@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from llm2jev import ChoiceAnswer, JevResponse, NoulAnswer, ScoreAnswer, Usage
@@ -104,7 +105,7 @@ class JevResponseTests(unittest.TestCase):
         )
         noul = NoulAnswer(noul=0.9)
         response = JevResponse(
-            model="jev-latest",
+            model="本地模型",
             answers={"department": choice, "severity": score, "refund": noul},
             usage=Usage(input_tokens=120, output_tokens=12),
         )
@@ -114,6 +115,20 @@ class JevResponseTests(unittest.TestCase):
         self.assertEqual(response.nouls, {"refund": noul})
         self.assertEqual(response.to_dict()["usage"], {"input_tokens": 120, "output_tokens": 12})
         self.assertEqual(response.to_dict()["answers"]["refund"], {"type": "noul", "noul": 0.9})  # type: ignore[index]
+        self.assertEqual(json.loads(response.json), response.to_dict())
+        self.assertIn('"confidence": 0.80', response.json)
+        self.assertIn('"noul": 0.90', response.json)
+        self.assertIn('"input_tokens": 120', response.json)
+
+    def test_json_rounds_floats_to_two_decimal_places_without_mutating_values(self) -> None:
+        response = JevResponse(
+            model="jev-latest",
+            answers={"refund": NoulAnswer(noul=0.126)},
+            usage=Usage(),
+        )
+
+        self.assertIn('"noul": 0.13', response.json)
+        self.assertEqual(response.to_dict()["answers"]["refund"], {"type": "noul", "noul": 0.126})  # type: ignore[index]
 
     def test_rejects_empty_answers(self) -> None:
         with self.assertRaises(ValueError):

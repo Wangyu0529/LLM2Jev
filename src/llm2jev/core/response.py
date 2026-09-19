@@ -1,9 +1,32 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .answers import Answer, ChoiceAnswer, NoulAnswer, ScoreAnswer
+
+
+def _format_json(value: object, level: int = 0) -> str:
+    if isinstance(value, float):
+        return f"{value:.2f}" if math.isfinite(value) else json.dumps(value)
+    if isinstance(value, Mapping):
+        if not value:
+            return "{}"
+        indent = "  " * (level + 1)
+        items = (
+            f"{indent}{json.dumps(key, ensure_ascii=False)}: {_format_json(item, level + 1)}"
+            for key, item in value.items()
+        )
+        return "{\n" + ",\n".join(items) + "\n" + "  " * level + "}"
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        if not value:
+            return "[]"
+        indent = "  " * (level + 1)
+        items = (f"{indent}{_format_json(item, level + 1)}" for item in value)
+        return "[\n" + ",\n".join(items) + "\n" + "  " * level + "]"
+    return json.dumps(value, ensure_ascii=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -59,6 +82,10 @@ class JevResponse:
     @property
     def nouls(self) -> dict[str, NoulAnswer]:
         return {name: answer for name, answer in self.answers.items() if isinstance(answer, NoulAnswer)}
+
+    @property
+    def json(self) -> str:
+        return _format_json(self.to_dict())
 
     def to_dict(self) -> dict[str, object]:
         return {

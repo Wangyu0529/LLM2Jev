@@ -1,6 +1,6 @@
 import unittest
 
-from llm2jev import TransformersBinaryBackend
+from llm2jev import TransformersBackend
 
 
 class FakeTokenizer:
@@ -17,20 +17,20 @@ class FakeTokenizer:
         return "rendered prompt"
 
 
-class TransformersBinaryBackendTests(unittest.TestCase):
+class TransformersBackendTests(unittest.TestCase):
     def test_rejects_invalid_batch_size_before_loading_model(self) -> None:
         with self.assertRaises(ValueError):
-            TransformersBinaryBackend("unused", batch_size=0)
+            TransformersBackend("unused", batch_size=0)
 
     def test_requires_a_single_token_label(self) -> None:
-        backend = object.__new__(TransformersBinaryBackend)
+        backend = object.__new__(TransformersBackend)
         backend.tokenizer = FakeTokenizer([1, 2])
 
         with self.assertRaisesRegex(ValueError, "exactly one token"):
             backend._single_token_id("yes", "yes_label")
 
     def test_applies_generation_template_without_thinking(self) -> None:
-        backend = object.__new__(TransformersBinaryBackend)
+        backend = object.__new__(TransformersBackend)
         backend.tokenizer = FakeTokenizer([1])
         backend.enable_thinking = False
         prompt = (

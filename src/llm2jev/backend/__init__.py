@@ -1,3 +1,3 @@
-from .TransformersBackend import TransformersBinaryBackend
+from .transformers_backend import TransformersBackend
 
-__all__ = ["TransformersBinaryBackend"]
+__all__ = ["TransformersBackend"]

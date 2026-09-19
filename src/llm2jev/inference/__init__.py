@@ -1,4 +1,4 @@
-from ..backend import TransformersBinaryBackend
+from ..backend import TransformersBackend
 from .assembler import Normalizer, assemble_response
 from .backend import BinaryBackend, BinaryBackendOutput
 from .binary import BinaryQuestion, compile_binary_questions
@@ -22,7 +22,7 @@ __all__ = [
     "LLM2Jev",
     "Normalizer",
     "PromptRenderer",
-    "TransformersBinaryBackend",
+    "TransformersBackend",
     "assemble_response",
     "compile_binary_questions",
     "normalize_l1",

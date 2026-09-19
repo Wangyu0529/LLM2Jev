@@ -9,7 +9,7 @@ from ..inference.prompt import ChatPrompt
 from ..core.response import Usage
 
 
-class TransformersBinaryBackend:
+class TransformersBackend:
     """Prefill-only binary scorer backed by a Transformers causal language model."""
 
     def __init__(
@@ -31,7 +31,7 @@ class TransformersBinaryBackend:
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as error:
             raise ImportError(
-                "TransformersBinaryBackend requires the 'transformers' and 'torch' packages"
+                "TransformersBackend requires the 'transformers' and 'torch' packages"
             ) from error
 
         self._torch = torch

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 
 from llm2jev import (
     Choice,
@@ -11,7 +10,7 @@ from llm2jev import (
     LLM2Jev,
     Noul,
     Score,
-    TransformersBinaryBackend,
+    TransformersBackend,
 )
 
 
@@ -48,9 +47,9 @@ def main() -> None:
         },
     )
 
-    backend = TransformersBinaryBackend(args.model_path)
+    backend = TransformersBackend(args.model_path)
     response = LLM2Jev(backend=backend).evaluate(request)
-    print(json.dumps(response.to_dict(), ensure_ascii=False, indent=2))
+    print(response.json)
 
 
 if __name__ == "__main__":
