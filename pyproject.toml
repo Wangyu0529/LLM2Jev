@@ -13,6 +13,11 @@ transformers = [
     "torch>=2.0",
     "transformers>=4.51",
 ]
+sglang = [
+    "sglang==0.5.14; sys_platform == 'linux'",
+    # SGLang requires this prerelease; declaring it opts uv into resolving it.
+    "flash-attn-4==4.0.0b15; sys_platform == 'linux'",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

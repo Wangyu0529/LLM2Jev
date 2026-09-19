@@ -54,6 +54,29 @@ print(response.to_dict())
 
 Transformers 后端会优先使用 CUDA；没有可用 GPU 时自动回退到 CPU。
 
+## SGLang 后端
+
+可选的 SGLang 后端适用于配有受支持 NVIDIA GPU 的 Linux 环境。
+
+```bash
+uv sync --locked --python 3.12 --extra sglang
+uv run --extra sglang python examples/sglang_inference.py --model-path /path/to/model
+```
+
+同一个 `JevRequest` 可以直接交给 `SGLangBackend`：
+
+```python
+from llm2jev import LLM2Jev, SGLangBackend
+
+if __name__ == "__main__":
+    with SGLangBackend(model_path, engine_kwargs={"mem_fraction_static": 0.4}) as backend:
+        response = LLM2Jev(backend=backend).evaluate(request)
+```
+
+SGLang 会启动工作进程，因此入口需要 `if __name__ == "__main__":` 保护。
+上下文管理器会在退出时关闭引擎。`engine_kwargs` 用于传入 SGLang 引擎配置，
+例如示例中的 `mem_fraction_static` 可控制 GPU 显存预算。
+
 ## 测试
 
 ```bash

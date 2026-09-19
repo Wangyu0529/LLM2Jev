@@ -54,6 +54,29 @@ print(response.to_dict())
 
 The Transformers backend uses CUDA when available and otherwise falls back to CPU.
 
+## SGLang Backend
+
+The optional SGLang backend runs on Linux with a supported NVIDIA GPU.
+
+```bash
+uv sync --locked --python 3.12 --extra sglang
+uv run --extra sglang python examples/sglang_inference.py --model-path /path/to/model
+```
+
+Use `SGLangBackend` with the same `JevRequest`:
+
+```python
+from llm2jev import LLM2Jev, SGLangBackend
+
+if __name__ == "__main__":
+    with SGLangBackend(model_path, engine_kwargs={"mem_fraction_static": 0.4}) as backend:
+        response = LLM2Jev(backend=backend).evaluate(request)
+```
+
+Use a main guard because SGLang launches worker processes. The context manager
+shuts down the engine on exit. Pass SGLang engine options through `engine_kwargs`;
+the example sets the GPU memory budget with `mem_fraction_static`.
+
 ## Tests
 
 ```bash

@@ -13,7 +13,7 @@ from .inference import (
     normalize_l1,
     serialize_content,
 )
-from .backend import TransformersBackend
+from .backend import SGLangBackend, TransformersBackend
 from .core import (
     Answer,
     Choice,
@@ -51,6 +51,7 @@ __all__ = [
     "PromptRenderer",
     "Score",
     "ScoreAnswer",
+    "SGLangBackend",
     "State",
     "TransformersBackend",
     "Usage",
