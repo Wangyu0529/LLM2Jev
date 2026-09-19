@@ -8,12 +8,12 @@ from .inference import (
     LLM2Jev,
     Normalizer,
     PromptRenderer,
-    TransformersBackend,
     assemble_response,
     compile_binary_questions,
     normalize_l1,
     serialize_content,
 )
+from .backend import TransformersBackend
 from .core import (
     Answer,
     Choice,
