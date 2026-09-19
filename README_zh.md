@@ -62,4 +62,4 @@ uv run python -m unittest discover -s tests -v
 
 ## 许可证
 
-本项目基于 [MIT License](LICENSE) 发布。
+本项目基于 [Apache License 2.0](LICENSE) 发布。
