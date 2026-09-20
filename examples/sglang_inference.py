@@ -8,6 +8,7 @@ from llm2jev import Choice, JevRequest, LLM2Jev, Noul, Score, SGLangBackend
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True)
+    parser.add_argument("--submission", choices=["all", "staged"], default="staged")
     args = parser.parse_args()
     request = JevRequest(
         state="客户说包裹一直没有送到，希望查询物流并尽快处理。",
@@ -24,7 +25,7 @@ def main() -> None:
         },
     )
     options = {"mem_fraction_static": 0.4, "disable_cuda_graph": True, "attention_backend": "triton"}
-    with SGLangBackend(args.model_path, engine_kwargs=options) as backend:
+    with SGLangBackend(args.model_path, submission=args.submission, engine_kwargs=options) as backend:
         print(LLM2Jev(backend=backend).evaluate(request).json)
 
 

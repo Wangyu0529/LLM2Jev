@@ -3,12 +3,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..core.response import Usage
 from ..inference.prompt import ChatPrompt
 from ..utils.probability import validate_probabilities
 from .base import BinaryBackendOutput
+from .prefix_plan import staged_batches
 from .tokenization import _apply_chat_template, _single_token_id
 
 
@@ -56,9 +57,14 @@ class SGLangBackend:
         yes_label: str = "yes",
         no_label: str = "no",
         enable_thinking: bool = False,
+        submission: Literal["all", "staged"] = "staged",
         engine_kwargs: Mapping[str, Any] | None = None,
     ) -> None:
         options = dict(engine_kwargs or {})
+        if submission not in ("all", "staged"):
+            raise ValueError("submission must be 'all' or 'staged'")
+        if submission == "staged" and options.get("disable_radix_cache"):
+            raise ValueError("staged submission requires Radix Cache")
         if options.get("enable_mis"):
             raise ValueError("enable_mis changes the independent candidate scoring path")
         if "model_path" in options:
@@ -74,6 +80,7 @@ class SGLangBackend:
 
         self.model_path = str(model_path)
         self.enable_thinking = enable_thinking
+        self.submission = submission
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_path, local_files_only=True,
         )
@@ -108,16 +115,22 @@ class SGLangBackend:
         )
         # SGLang score() uses max_new_tokens=0 and returns next-token
         # label logprobs normalized over just the requested label IDs.
-        result = self.engine.score(
-            query=[],
-            items=input_ids,
-            label_token_ids=[self.no_token_id, self.yes_token_id],
-            apply_softmax=True,
+        batches = (
+            staged_batches(input_ids)
+            if self.submission == "staged"
+            else [list(range(len(input_ids)))]
         )
-        probabilities = _yes_probabilities(
-            result.scores,
-            expected_count=len(input_ids),
-        )
+        probabilities = [0.0] * len(input_ids)
+        for indices in batches:
+            result = self.engine.score(
+                query=[],
+                items=[input_ids[index] for index in indices],
+                label_token_ids=[self.no_token_id, self.yes_token_id],
+                apply_softmax=True,
+            )
+            values = _yes_probabilities(result.scores, expected_count=len(indices))
+            for index, probability in zip(indices, values):
+                probabilities[index] = probability
 
         return BinaryBackendOutput(
             yes_probabilities=probabilities,

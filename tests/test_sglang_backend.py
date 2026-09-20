@@ -18,6 +18,9 @@ class SGLangBackendTests(unittest.TestCase):
         self.tokenizer.return_value = {"input_ids": [[11, 12, 13], [11, 12, 14, 15]]}
         self.engine = Mock()
         self.engine.score.return_value = SimpleNamespace(scores=[[0.2, 0.8], [0.7, 0.3]])
+        self.engine.score.side_effect = lambda **kwargs: SimpleNamespace(
+            scores=[{13: [0.2, 0.8], 15: [0.7, 0.3]}[tokens[-1]] for tokens in kwargs["items"]],
+        )
         self.engine_class = Mock(return_value=self.engine)
         self.auto_tokenizer = Mock()
         self.auto_tokenizer.from_pretrained.return_value = self.tokenizer
@@ -34,7 +37,7 @@ class SGLangBackendTests(unittest.TestCase):
 
     def test_scores_full_token_sequences_with_no_yes_normalization(self) -> None:
         options = {"schedule_policy": "lpm", "mem_fraction_static": 0.4}
-        with SGLangBackend("local-model", engine_kwargs=options) as backend:
+        with SGLangBackend("local-model", submission="all", engine_kwargs=options) as backend:
             output = backend.score(model="request-model", prompts=self.prompts)
         self.engine_class.assert_called_once_with(model_path="local-model", **options)
         self.auto_tokenizer.from_pretrained.assert_called_once_with(
@@ -59,6 +62,47 @@ class SGLangBackendTests(unittest.TestCase):
             list(self.prompts[0]), tokenize=False,
             add_generation_prompt=True, enable_thinking=True,
         )
+
+    def test_default_staged_submission_preserves_full_inputs_output_order_and_usage(self) -> None:
+        ids = [[1, 2, 3, 10], [1, 2, 3, 11], [1, 2, 4, 12], [1, 2, 4, 13]]
+        original = [tokens[:] for tokens in ids]
+        self.tokenizer.return_value = {"input_ids": ids}
+        self.engine.score.side_effect = lambda **kwargs: SimpleNamespace(
+            scores=[[1 - (tokens[-1] - 9) / 10, (tokens[-1] - 9) / 10]
+                    for tokens in kwargs["items"]],
+        )
+        with SGLangBackend("local-model") as backend:
+            output = backend.score(model="model", prompts=self.prompts * 2)
+        self.assertEqual([call.kwargs["items"] for call in self.engine.score.call_args_list],
+                         [[ids[0]], [ids[1], ids[2]], [ids[3]]])
+        self.assertEqual(output.yes_probabilities, (.1, .2, .3, .4))
+        self.assertEqual(output.usage, Usage(input_tokens=16, output_tokens=0))
+        self.assertEqual(ids, original)
+        self.engine.flush_cache.assert_not_called()
+
+    def test_rejects_invalid_submission_and_disabled_cache_before_engine_start(self) -> None:
+        for kwargs in ({"submission": "auto"},
+                       {"engine_kwargs": {"disable_radix_cache": True}},
+                       {"submission": "staged", "engine_kwargs": {"disable_radix_cache": True}}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                SGLangBackend("local-model", **kwargs)
+        self.engine_class.assert_not_called()
+
+    def test_all_submission_allows_disabled_cache(self) -> None:
+        with SGLangBackend("local-model", submission="all", engine_kwargs={"disable_radix_cache": True}) as backend:
+            backend.score(model="model", prompts=self.prompts)
+        self.engine.score.assert_called_once()
+
+    def test_staged_failure_does_not_return_partial_results_or_call_later_stages(self) -> None:
+        self.tokenizer.return_value = {
+            "input_ids": [[1, 2, 3, 10], [1, 2, 3, 11], [1, 2, 4, 12], [1, 2, 4, 13]],
+        }
+        self.engine.score.side_effect = [SimpleNamespace(scores=[[.2, .8]]),
+                                         SimpleNamespace(scores=[])]
+        with SGLangBackend("local-model", submission="staged") as backend:
+            with self.assertRaisesRegex(ValueError, "wrong number"):
+                backend.score(model="model", prompts=self.prompts * 2)
+        self.assertEqual(self.engine.score.call_count, 2)
 
     def test_rejects_invalid_labels_before_starting_engine(self) -> None:
         for kwargs in ({"yes_label": "multi"}, {"no_label": "alias"}):
@@ -86,7 +130,8 @@ class SGLangBackendTests(unittest.TestCase):
             [[0.2, 0.8], [float("nan"), 0.5]],
             [[0.2, 0.8], [-0.2, 1.2]],
         )
-        with SGLangBackend("local-model") as backend:
+        self.engine.score.side_effect = None
+        with SGLangBackend("local-model", submission="all") as backend:
             for scores in invalid:
                 with self.subTest(scores=scores), self.assertRaises(ValueError):
                     self.engine.score.return_value = SimpleNamespace(scores=scores)
