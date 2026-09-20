@@ -1,5 +1,5 @@
+from ..backend.base import BinaryBackend, BinaryBackendOutput
 from .assembler import Normalizer, assemble_response
-from .backend import BinaryBackend, BinaryBackendOutput
 from .binary import BinaryQuestion, compile_binary_questions
 from .converter import LLM2Jev
 from .normalization import normalize_l1

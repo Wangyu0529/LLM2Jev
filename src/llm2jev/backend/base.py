@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..core.response import Usage
 from ..utils.probability import validate_probabilities
-from .prompt import ChatPrompt
+
+if TYPE_CHECKING:
+    from ..inference.prompt import ChatPrompt
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

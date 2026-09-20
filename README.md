@@ -77,6 +77,49 @@ Use a main guard because SGLang launches worker processes. The context manager
 shuts down the engine on exit. Pass SGLang engine options through `engine_kwargs`;
 the example sets the GPU memory budget with `mem_fraction_static`.
 
+## System One HTTP API
+
+`llm2jev-serve` adds `POST /v1/systemone` to SGLang's native HTTP server.
+SGLang continues to provide model listing, health checks, authentication, and
+its other native endpoints.
+
+```bash
+uv sync --locked --python 3.12 --extra sglang
+uv run --extra sglang llm2jev-serve \
+  --model-path /path/to/model \
+  --served-model-name local-model \
+  --api-key "$LLM2JEV_API_KEY"
+```
+
+List models through SGLang's native endpoint:
+
+```bash
+curl http://localhost:30000/v1/models \
+  -H "Authorization: Bearer $LLM2JEV_API_KEY"
+```
+
+Submit a System One request:
+
+```bash
+curl http://localhost:30000/v1/systemone \
+  -H "Authorization: Bearer $LLM2JEV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": "The customer package has not arrived.",
+    "model": "local-model",
+    "questions": {
+      "delivery": {
+        "type": "noul",
+        "instructions": "Is this a delivery issue?"
+      }
+    }
+  }'
+```
+
+The command accepts SGLang's normal server arguments. It currently requires
+the default single-tokenizer HTTP mode and does not support
+`--skip-tokenizer-init`.
+
 ## Tests
 
 ```bash

@@ -77,6 +77,47 @@ SGLang 会启动工作进程，因此入口需要 `if __name__ == "__main__":` �
 上下文管理器会在退出时关闭引擎。`engine_kwargs` 用于传入 SGLang 引擎配置，
 例如示例中的 `mem_fraction_static` 可控制 GPU 显存预算。
 
+## System One HTTP API
+
+`llm2jev-serve` 在 SGLang 原生 HTTP 服务上增加 `POST /v1/systemone`。
+模型列表、健康检查、鉴权和其他端点仍由 SGLang 提供。
+
+```bash
+uv sync --locked --python 3.12 --extra sglang
+uv run --extra sglang llm2jev-serve \
+  --model-path /path/to/model \
+  --served-model-name local-model \
+  --api-key "$LLM2JEV_API_KEY"
+```
+
+查看 SGLang 原生模型列表：
+
+```bash
+curl http://localhost:30000/v1/models \
+  -H "Authorization: Bearer $LLM2JEV_API_KEY"
+```
+
+提交 System One 请求：
+
+```bash
+curl http://localhost:30000/v1/systemone \
+  -H "Authorization: Bearer $LLM2JEV_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "state": "客户的包裹一直没有送到。",
+    "model": "local-model",
+    "questions": {
+      "delivery": {
+        "type": "noul",
+        "instructions": "这是物流配送问题吗？"
+      }
+    }
+  }'
+```
+
+服务复用 SGLang 的启动参数，目前要求使用默认的单 tokenizer HTTP 模式，
+且不能启用 `--skip-tokenizer-init`。
+
 ## 测试
 
 ```bash

@@ -1,6 +1,7 @@
 import unittest
 
 from llm2jev import TransformersBackend
+from llm2jev.backend.tokenization import _apply_chat_template, _single_token_id
 
 
 class FakeTokenizer:
@@ -23,26 +24,27 @@ class TransformersBackendTests(unittest.TestCase):
             TransformersBackend("unused", batch_size=0)
 
     def test_requires_a_single_token_label(self) -> None:
-        backend = object.__new__(TransformersBackend)
-        backend.tokenizer = FakeTokenizer([1, 2])
+        tokenizer = FakeTokenizer([1, 2])
 
         with self.assertRaisesRegex(ValueError, "exactly one token"):
-            backend._single_token_id("yes", "yes_label")
+            _single_token_id(tokenizer, "yes", "yes_label")
 
     def test_applies_generation_template_without_thinking(self) -> None:
-        backend = object.__new__(TransformersBackend)
-        backend.tokenizer = FakeTokenizer([1])
-        backend.enable_thinking = False
+        tokenizer = FakeTokenizer([1])
         prompt = (
             {"role": "system", "content": "system"},
             {"role": "user", "content": "user"},
         )
 
-        rendered = backend._apply_chat_template(prompt)
+        rendered = _apply_chat_template(
+            tokenizer,
+            prompt,
+            enable_thinking=False,
+        )
 
         self.assertEqual(rendered, "rendered prompt")
         self.assertEqual(
-            backend.tokenizer.template_call,
+            tokenizer.template_call,
             (
                 list(prompt),
                 {

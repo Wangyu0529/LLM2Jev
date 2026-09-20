@@ -4,9 +4,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from ..inference.backend import BinaryBackendOutput
-from ..inference.prompt import ChatPrompt
 from ..core.response import Usage
+from ..inference.prompt import ChatPrompt
+from .base import BinaryBackendOutput
+from .tokenization import _apply_chat_template, _single_token_id
 
 
 class TransformersBackend:
@@ -47,8 +48,12 @@ class TransformersBackend:
                 raise ValueError("tokenizer must define a pad token or an EOS token")
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.yes_token_id = self._single_token_id(yes_label, "yes_label")
-        self.no_token_id = self._single_token_id(no_label, "no_label")
+        self.yes_token_id = _single_token_id(
+            self.tokenizer, yes_label, "yes_label",
+        )
+        self.no_token_id = _single_token_id(
+            self.tokenizer, no_label, "no_label",
+        )
         if self.yes_token_id == self.no_token_id:
             raise ValueError("yes_label and no_label must encode to different tokens")
 
@@ -68,12 +73,6 @@ class TransformersBackend:
         self.model.eval()
         self.device = selected_device
 
-    def _single_token_id(self, label: str, field: str) -> int:
-        token_ids = self.tokenizer.encode(label, add_special_tokens=False)
-        if len(token_ids) != 1:
-            raise ValueError(f"{field} must encode to exactly one token, got {token_ids}")
-        return token_ids[0]
-
     def score(
         self,
         *,
@@ -89,7 +88,14 @@ class TransformersBackend:
         input_tokens = 0
         for start in range(0, len(prompt_values), self.batch_size):
             batch = prompt_values[start : start + self.batch_size]
-            rendered = [self._apply_chat_template(prompt) for prompt in batch]
+            rendered = [
+                _apply_chat_template(
+                    self.tokenizer,
+                    prompt,
+                    enable_thinking=self.enable_thinking,
+                )
+                for prompt in batch
+            ]
             encoded = self.tokenizer(
                 rendered,
                 return_tensors="pt",
@@ -117,15 +123,6 @@ class TransformersBackend:
             yes_probabilities=yes_probabilities,
             usage=Usage(input_tokens=input_tokens, output_tokens=0),
         )
-
-    def _apply_chat_template(self, prompt: ChatPrompt) -> str:
-        kwargs: dict[str, Any] = {
-            "tokenize": False,
-            "add_generation_prompt": True,
-        }
-        if self.enable_thinking is not None:
-            kwargs["enable_thinking"] = self.enable_thinking
-        return self.tokenizer.apply_chat_template(list(prompt), **kwargs)
 
     def _last_token_positions(self, attention_mask: Any) -> Any:
         positions = self._torch.arange(

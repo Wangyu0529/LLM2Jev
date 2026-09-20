@@ -6,9 +6,44 @@ from pathlib import Path
 from typing import Any
 
 from ..core.response import Usage
-from ..inference.backend import BinaryBackendOutput
 from ..inference.prompt import ChatPrompt
 from ..utils.probability import validate_probabilities
+from .base import BinaryBackendOutput
+from .tokenization import _apply_chat_template, _single_token_id
+
+
+def _encode_chat_prompts(
+    tokenizer: Any,
+    prompts: Sequence[ChatPrompt],
+    *,
+    enable_thinking: bool,
+) -> list[list[int]]:
+    rendered = [
+        _apply_chat_template(
+            tokenizer,
+            prompt,
+            enable_thinking=enable_thinking,
+        )
+        for prompt in prompts
+    ]
+    return tokenizer(rendered, add_special_tokens=False)["input_ids"]
+
+
+def _yes_probabilities(
+    scores: Sequence[Sequence[float]],
+    *,
+    expected_count: int,
+) -> tuple[float, ...]:
+    if len(scores) != expected_count:
+        raise ValueError("SGLang returned the wrong number of candidate scores")
+
+    probabilities: list[float] = []
+    for row in scores:
+        values = validate_probabilities(row)
+        if len(values) != 2 or not math.isclose(sum(values), 1.0, abs_tol=1e-6):
+            raise ValueError("SGLang must return a normalized no/yes pair")
+        probabilities.append(values[1])
+    return tuple(probabilities)
 
 
 class SGLangBackend:
@@ -42,30 +77,16 @@ class SGLangBackend:
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_path, local_files_only=True,
         )
-        self.yes_token_id = self._single_token_id(yes_label, "yes_label")
-        self.no_token_id = self._single_token_id(no_label, "no_label")
+        self.yes_token_id = _single_token_id(
+            self.tokenizer, yes_label, "yes_label",
+        )
+        self.no_token_id = _single_token_id(
+            self.tokenizer, no_label, "no_label",
+        )
         if self.yes_token_id == self.no_token_id:
             raise ValueError("yes_label and no_label must encode to different tokens")
 
         self.engine = Engine(model_path=self.model_path, **options)
-
-    def _single_token_id(self, label: str, field: str) -> int:
-        token_ids = self.tokenizer.encode(label, add_special_tokens=False)
-        if len(token_ids) != 1:
-            raise ValueError(f"{field} must encode to exactly one token, got {token_ids}")
-        return token_ids[0]
-
-    def _encode_prompts(self, prompts: Sequence[ChatPrompt]) -> list[list[int]]:
-        rendered = [
-            self.tokenizer.apply_chat_template(
-                list(prompt),
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=self.enable_thinking,
-            )
-            for prompt in prompts
-        ]
-        return self.tokenizer(rendered, add_special_tokens=False)["input_ids"]
 
     def score(
         self,
@@ -80,7 +101,11 @@ class SGLangBackend:
         if not prompt_values:
             raise ValueError("prompts must not be empty")
 
-        input_ids = self._encode_prompts(prompt_values)
+        input_ids = _encode_chat_prompts(
+            self.tokenizer,
+            prompt_values,
+            enable_thinking=self.enable_thinking,
+        )
         # SGLang 0.5.14 score() uses max_new_tokens=0 and returns next-token
         # label logprobs normalized over just the requested label IDs.
         result = self.engine.score(
@@ -89,15 +114,10 @@ class SGLangBackend:
             label_token_ids=[self.no_token_id, self.yes_token_id],
             apply_softmax=True,
         )
-        if len(result.scores) != len(input_ids):
-            raise ValueError("SGLang returned the wrong number of candidate scores")
-
-        probabilities: list[float] = []
-        for row in result.scores:
-            values = validate_probabilities(row)
-            if len(values) != 2 or not math.isclose(sum(values), 1.0, abs_tol=1e-6):
-                raise ValueError("SGLang must return a normalized no/yes pair")
-            probabilities.append(values[1])
+        probabilities = _yes_probabilities(
+            result.scores,
+            expected_count=len(input_ids),
+        )
 
         return BinaryBackendOutput(
             yes_probabilities=probabilities,

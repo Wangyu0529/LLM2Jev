@@ -1,6 +1,4 @@
 from .inference import (
-    BinaryBackend,
-    BinaryBackendOutput,
     BinaryQuestion,
     ChatMessage,
     ChatPrompt,
@@ -13,7 +11,12 @@ from .inference import (
     normalize_l1,
     serialize_content,
 )
-from .backend import SGLangBackend, TransformersBackend
+from .backend import (
+    BinaryBackend,
+    BinaryBackendOutput,
+    SGLangBackend,
+    TransformersBackend,
+)
 from .core import (
     Answer,
     Choice,

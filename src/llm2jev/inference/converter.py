@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..backend.base import BinaryBackend
 from ..core.request import JevRequest
 from ..core.response import JevResponse
 from .assembler import Normalizer, assemble_response
-from .backend import BinaryBackend
 from .binary import compile_binary_questions
 from .normalization import normalize_l1
 from .prompt import DefaultPromptRenderer, PromptRenderer

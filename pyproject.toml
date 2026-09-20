@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Adapt language models to Jev-style structured questions."
 requires-python = ">=3.10"
 
+[project.scripts]
+llm2jev-serve = "llm2jev.sglang_server:main"
+
 [project.optional-dependencies]
 transformers = [
     "torch>=2.0",
