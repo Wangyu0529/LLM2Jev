@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from collections.abc import Mapping
 from typing import Any
 
+from .backend.prefix_plan import staged_batches
 from .backend.sglang_backend import (
     _encode_chat_prompts,
     _yes_probabilities,
@@ -73,6 +75,8 @@ def _parse_request(payload: object) -> JevRequest:
 async def _evaluate_request(
     request: JevRequest,
     tokenizer_manager: Any,
+    *,
+    submission: str = "staged",
 ) -> JevResponse:
     tokenizer = tokenizer_manager.tokenizer
     if tokenizer is None:
@@ -91,24 +95,32 @@ async def _evaluate_request(
     if no_token_id == yes_token_id:
         raise ValueError("yes_label and no_label must encode to different tokens")
 
-    result = await tokenizer_manager.score_prompts(
-        input_ids,
-        label_token_ids=[no_token_id, yes_token_id],
-        apply_softmax=True,
+    batches = (
+        staged_batches(input_ids)
+        if submission == "staged"
+        else [list(range(len(input_ids)))]
     )
-    probabilities = _yes_probabilities(
-        result.scores,
-        expected_count=len(input_ids),
-    )
+    probabilities = [0.0] * len(input_ids)
+    prompt_tokens = 0
+    for indices in batches:
+        result = await tokenizer_manager.score_prompts(
+            [input_ids[index] for index in indices],
+            label_token_ids=[no_token_id, yes_token_id],
+            apply_softmax=True,
+        )
+        values = _yes_probabilities(result.scores, expected_count=len(indices))
+        for index, probability in zip(indices, values):
+            probabilities[index] = probability
+        prompt_tokens += result.prompt_tokens
     return assemble_response(
         request=request,
         tasks=tasks,
         yes_probabilities=probabilities,
-        usage=Usage(input_tokens=result.prompt_tokens, output_tokens=0),
+        usage=Usage(input_tokens=prompt_tokens, output_tokens=0),
     )
 
 
-def register_systemone_route() -> Any:
+def register_systemone_route(*, submission: str = "staged") -> Any:
     """Register the System One endpoint on SGLang's existing FastAPI app."""
     try:
         from fastapi import HTTPException
@@ -119,6 +131,7 @@ def register_systemone_route() -> Any:
             "install llm2jev[sglang]"
         ) from error
 
+    app.state.llm2jev_submission = submission
     if any(getattr(route, "path", None) == "/v1/systemone" for route in app.routes):
         return app
 
@@ -134,14 +147,18 @@ def register_systemone_route() -> Any:
                 status_code=404,
                 detail=f"The model {request.model!r} does not exist",
             )
-        response = await _evaluate_request(request, tokenizer_manager)
+        response = await _evaluate_request(
+            request, tokenizer_manager, submission=app.state.llm2jev_submission
+        )
         return response.to_dict()
 
     app.add_api_route("/v1/systemone", systemone, methods=["POST"])
     return app
 
 
-def _validate_server_args(server_args: Any) -> None:
+def _validate_server_args(server_args: Any, *, submission: str = "staged") -> None:
+    if submission == "staged" and server_args.disable_radix_cache:
+        raise ValueError("staged submission requires Radix Cache; use --submission all")
     if server_args.tokenizer_worker_num != 1:
         raise ValueError("System One currently requires --tokenizer-worker-num 1")
     if server_args.skip_tokenizer_init:
@@ -150,7 +167,24 @@ def _validate_server_args(server_args: Any) -> None:
         raise ValueError("System One requires SGLang's standard HTTP server")
 
 
+def _parse_submission_args(argv: list[str]) -> tuple[str, list[str]]:
+    parser = argparse.ArgumentParser(prog="llm2jev-serve", add_help=False, allow_abbrev=False)
+    parser.add_argument(
+        "--submission",
+        choices=("staged", "all"),
+        default="staged",
+        help="Candidate submission for /v1/systemone (default: staged).",
+    )
+    args, remaining = parser.parse_known_args(argv)
+    if "--help" in remaining or "-h" in remaining:
+        print(parser.format_help())
+    return args.submission, remaining
+
+
 def main(argv: list[str] | None = None) -> None:
+    submission, sglang_argv = _parse_submission_args(
+        sys.argv[1:] if argv is None else argv
+    )
     try:
         from sglang.srt.plugins import load_plugins
         from sglang.srt.server_args import prepare_server_args
@@ -164,9 +198,9 @@ def main(argv: list[str] | None = None) -> None:
     load_plugins()
     from sglang.srt.entrypoints.http_server import launch_server
 
-    server_args = prepare_server_args(sys.argv[1:] if argv is None else argv)
-    _validate_server_args(server_args)
-    register_systemone_route()
+    server_args = prepare_server_args(sglang_argv)
+    _validate_server_args(server_args, submission=submission)
+    register_systemone_route(submission=submission)
     try:
         launch_server(server_args)
     finally:

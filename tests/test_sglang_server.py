@@ -1,12 +1,17 @@
+import io
 import unittest
+from contextlib import redirect_stdout, redirect_stderr
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call, patch
 
 from llm2jev import Choice, JevRequest, Noul, Score
 from llm2jev.sglang_server import (
     _evaluate_request,
     _parse_request,
+    _parse_submission_args,
     _validate_server_args,
+    main,
+    register_systemone_route,
 )
 
 
@@ -87,7 +92,7 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        response = await _evaluate_request(request, manager)
+        response = await _evaluate_request(request, manager, submission="all")
 
         manager.score_prompts.assert_awaited_once_with(
             [[11, 12, 13], [11, 12, 14]],
@@ -97,6 +102,88 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.answers["department"].choice, "shipping")
         self.assertEqual(response.usage.input_tokens, 6)
         self.assertEqual(response.usage.output_tokens, 0)
+
+    async def test_default_stages_restore_candidate_order_and_sum_usage(self) -> None:
+        # Candidate 2 seeds a separate branch before candidate 1 is submitted.
+        inputs = [[1, 2, 3], [1, 2, 4], [5, 6, 7], [5, 6, 8]]
+        tokenizer = Mock()
+        tokenizer.encode.side_effect = lambda label, **kwargs: {"no": [9], "yes": [7]}[label]
+        completed = []
+
+        async def score(batch, **kwargs):
+            if batch == [inputs[1], inputs[3]]:
+                self.assertEqual(completed, [0, 2])
+            indices = [inputs.index(tokens) for tokens in batch]
+            completed.extend(indices)
+            yes = [0.1, 0.9, 0.8, 0.2]
+            return SimpleNamespace(
+                scores=[[1 - yes[index], yes[index]] for index in indices],
+                prompt_tokens=sum(map(len, batch)),
+            )
+
+        manager = SimpleNamespace(tokenizer=tokenizer, score_prompts=AsyncMock(side_effect=score))
+        request = JevRequest(
+            state="text",
+            model="local-model",
+            questions={
+                "department": Choice(criteria={"shipping": None, "billing": None}),
+                "severity": Score(criteria=["low", "high"]),
+            },
+        )
+        with patch("llm2jev.sglang_server._encode_chat_prompts", return_value=inputs):
+            response = await _evaluate_request(request, manager)
+
+        self.assertEqual(manager.score_prompts.await_args_list, [
+            call([inputs[0], inputs[2]], label_token_ids=[9, 7], apply_softmax=True),
+            call([inputs[1], inputs[3]], label_token_ids=[9, 7], apply_softmax=True),
+        ])
+        self.assertEqual(completed, [0, 2, 1, 3])
+        self.assertEqual(response.answers["department"].choice, "billing")
+        self.assertAlmostEqual(response.answers["severity"].score, 0.2)
+        self.assertEqual(response.usage.input_tokens, 12)
+        self.assertEqual(response.usage.output_tokens, 0)
+
+    async def test_stage_failure_does_not_submit_remaining_candidates(self) -> None:
+        tokenizer = Mock()
+        tokenizer.encode.side_effect = lambda label, **kwargs: {"no": [9], "yes": [7]}[label]
+        request = JevRequest(
+            state="text", model="local-model",
+            questions={"check": Choice(criteria={"a": None, "b": None})},
+        )
+        manager = SimpleNamespace(
+            tokenizer=tokenizer,
+            score_prompts=AsyncMock(return_value=SimpleNamespace(scores=[], prompt_tokens=0)),
+        )
+        with patch("llm2jev.sglang_server._encode_chat_prompts", return_value=[[1, 2], [1, 3]]):
+            with self.assertRaisesRegex(ValueError, "wrong number"):
+                await _evaluate_request(request, manager)
+        manager.score_prompts.assert_awaited_once()
+
+    async def test_route_uses_configured_submission(self) -> None:
+        app = SimpleNamespace(state=SimpleNamespace(), routes=[], add_api_route=Mock())
+        manager = SimpleNamespace(served_model_name="local-model")
+        http_server = SimpleNamespace(
+            app=app, get_global_state=lambda: SimpleNamespace(tokenizer_manager=manager)
+        )
+        payload = {
+            "state": "text", "model": "local-model",
+            "questions": {"check": {"type": "noul"}},
+        }
+        modules = {
+            "fastapi": SimpleNamespace(HTTPException=Exception),
+            "sglang.srt.entrypoints.http_server": http_server,
+        }
+        with patch.dict("sys.modules", modules):
+            for mode in ("all", "staged"):
+                with self.subTest(mode=mode):
+                    register_systemone_route(submission=mode)
+                    route = app.add_api_route.call_args.args[1]
+                    response = Mock()
+                    with patch("llm2jev.sglang_server._evaluate_request", new_callable=AsyncMock, return_value=response) as evaluate:
+                        self.assertEqual(await route(payload), response.to_dict())
+                        evaluate.assert_awaited_once_with(
+                            _parse_request(payload), manager, submission=mode
+                        )
 
     async def test_requires_tokenizer(self) -> None:
         request = JevRequest(
@@ -119,6 +206,7 @@ class ServerArgumentTests(unittest.TestCase):
                 grpc_mode=False,
                 encoder_only=False,
                 use_ray=False,
+                disable_radix_cache=False,
             )
         )
 
@@ -129,6 +217,7 @@ class ServerArgumentTests(unittest.TestCase):
             "grpc_mode": False,
             "encoder_only": False,
             "use_ray": False,
+            "disable_radix_cache": False,
         }
         overrides = (
             {"tokenizer_worker_num": 2},
@@ -136,10 +225,64 @@ class ServerArgumentTests(unittest.TestCase):
             {"grpc_mode": True},
             {"encoder_only": True},
             {"use_ray": True},
+            {"disable_radix_cache": True},
         )
         for override in overrides:
             with self.subTest(override=override), self.assertRaises(ValueError):
                 _validate_server_args(SimpleNamespace(**(defaults | override)))
+
+    def test_all_allows_disabled_radix_cache(self) -> None:
+        _validate_server_args(SimpleNamespace(
+            tokenizer_worker_num=1, skip_tokenizer_init=False,
+            grpc_mode=False, encoder_only=False, use_ray=False,
+            disable_radix_cache=True,
+        ), submission="all")
+
+    def test_submission_parser_preserves_sglang_arguments(self) -> None:
+        native = ["--model-path", "local-model", "--port", "30001", "--disable-radix-cache"]
+        self.assertEqual(_parse_submission_args(native), ("staged", native))
+        for mode in ("staged", "all"):
+            for option in (["--submission", mode], [f"--submission={mode}"]):
+                with self.subTest(option=option):
+                    self.assertEqual(_parse_submission_args(native + option), (mode, native))
+
+    def test_submission_parser_rejects_invalid_or_missing_value(self) -> None:
+        for args in (["--submission", "auto"], ["--submission"]):
+            with self.subTest(args=args), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    _parse_submission_args(args)
+                self.assertEqual(error.exception.code, 2)
+
+    def test_help_describes_submission_and_is_forwarded(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(_parse_submission_args(["--help"]), ("staged", ["--help"]))
+        self.assertIn("--submission {staged,all}", output.getvalue())
+        self.assertIn("default: staged", " ".join(output.getvalue().split()))
+
+    def test_main_passes_mode_to_route_and_native_args_to_sglang(self) -> None:
+        server_args = SimpleNamespace(
+            tokenizer_worker_num=1, skip_tokenizer_init=False,
+            grpc_mode=False, encoder_only=False, use_ray=False,
+            disable_radix_cache=False,
+        )
+        prepare = Mock(return_value=server_args)
+        launch = Mock()
+        cleanup = Mock()
+        modules = {
+            "sglang.srt.plugins": SimpleNamespace(load_plugins=Mock()),
+            "sglang.srt.server_args": SimpleNamespace(prepare_server_args=prepare),
+            "sglang.srt.utils": SimpleNamespace(kill_process_tree=cleanup),
+            "sglang.srt.entrypoints.http_server": SimpleNamespace(launch_server=launch),
+        }
+        with patch.dict("sys.modules", modules):
+            for option, expected in (([], "staged"), (["--submission", "all"], "all")):
+                with self.subTest(mode=expected), patch("llm2jev.sglang_server.register_systemone_route") as register:
+                    main(["--model-path", "local-model"] + option)
+                    prepare.assert_called_with(["--model-path", "local-model"])
+                    register.assert_called_once_with(submission=expected)
+                    launch.assert_called_with(server_args)
+                    cleanup.assert_called_with(unittest.mock.ANY, include_parent=False)
 
 
 if __name__ == "__main__":
