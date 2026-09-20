@@ -10,146 +10,57 @@ LLM2Jev adapts local language models to Jev-style structured decisions. It accep
 
 > LLM2Jev is an independent open-source project. It is not affiliated with or endorsed by Jev or TypeSafe.
 
-## Installation
+## Quick Start
 
-Clone the repository:
+On Linux with a supported NVIDIA GPU, run a local model through SGLang:
 
 ```bash
 git clone https://github.com/Yinsongxu/LLM2Jev.git
 cd LLM2Jev
-```
-
-SGLang is the recommended backend on Linux with a supported NVIDIA GPU. It also
-installs its Transformers dependency:
-
-```bash
 uv sync --extra sglang
-```
-
-For a Transformers-only environment:
-
-```bash
-uv sync --extra transformers
-```
-
-For an editable pip installation, use the corresponding extra:
-
-```bash
-python -m pip install -e ".[sglang]"
-# Or: python -m pip install -e ".[transformers]"
-```
-
-After installing with uv, activate the virtual environment:
-
-```bash
 source .venv/bin/activate
+python examples/sglang_inference.py --model-path /path/to/model
 ```
 
-## Quick Start
+The example submits Choice, Score, and Noul questions and prints the response as JSON.
+Replace `/path/to/model` with a local Hugging Face-compatible causal language model directory.
 
-Run the SGLang example with a local Hugging Face-compatible causal language model and a supported NVIDIA GPU:
+## Key Features
 
-```bash
-python examples/sglang_inference.py \
-  --model-path /path/to/model
-```
+- **Structured decisions:** define `Choice`, `Score`, and `Noul` questions at runtime. Get option probabilities, weighted scores, or the probability that a condition is true; Choice and Score also include confidence.
+- **Probabilities from logits:** score each candidate with an independent yes/no judgment, then assemble JSON in code. No answer tokens are generated.
+- **Shared-prefix caching:** stage candidate submissions to reuse SGLang's Radix Cache within a single request, including a first request with no relevant cached prefix.
 
-The example submits all three supported question types and prints the response as JSON.
+Candidates share `state`, and candidates for the same question also share its `instructions`. LLM2Jev first scores a real `criteria` candidate to establish the prefix cache, then submits candidates that can reuse it. Each candidate is scored once, reducing repeated computation for long inputs with many candidates.
 
-## Question Types
+![Staged candidate scoring reuses state and question instructions through SGLang Radix Cache.](assets/shared-prefix-stages.svg)
 
-- `Choice`: selects one option and returns a probability distribution and confidence.
-- `Score`: evaluates ordered levels and returns a weighted score, probability distribution, and confidence.
-- `Noul`: returns the probability that a condition is true.
+Learn how it works: [From Jev Request to LLM Request](docs/request-to-model.md) → [Shared-prefix design](docs/shared-prefix-cache.md).
 
-## Python API
+## Installation
 
-```python
-from llm2jev import JevRequest, LLM2Jev, Noul, SGLangBackend
+See [Installation](docs/installation.md) for environment requirements, SGLang and Transformers dependencies, and uv or pip installation.
 
-model_path = "/path/to/model"
-request = JevRequest(
-    state="The package has not arrived.",
-    model=model_path,
-    questions={
-        "is_delivery_issue": Noul(
-            instructions="Is this a delivery issue?",
-        )
-    },
-)
+## Getting Started
 
-if __name__ == "__main__":
-    with SGLangBackend(model_path) as backend:
-        response = LLM2Jev(backend=backend).evaluate(request)
-        print(response.to_dict())
-```
+See the [Usage guide](docs/usage.md) for complete examples:
 
-Use a main guard because SGLang launches worker processes. The context manager
-shuts down the engine on exit. Pass SGLang engine options through `engine_kwargs`.
+- [SGLang Python API](docs/usage.md#sglang-python-api)
+- [Transformers backend](docs/usage.md#transformers-backend)
+- [System One HTTP API](docs/usage.md#system-one-http-api)
+- [Choosing between `staged` and `all`](docs/usage.md#choosing-a-mode)
 
-## Transformers Backend
 
-Run the example in the Transformers-only environment:
+## Benchmarks
 
-```bash
-python examples/transformers_inference.py --model-path /path/to/model
-```
+See [Performance benchmarks](docs/shared-prefix-benchmarks.md) for the Qwen3-1.7B / RTX 5090 measurements, test conditions, and comparison of `staged` and `all` across cold and warm caches. Gains depend on input length, candidate count, and cache state.
 
-Use `TransformersBackend` with the same `JevRequest`:
+## Roadmap
 
-```python
-from llm2jev import LLM2Jev, TransformersBackend
-
-backend = TransformersBackend(model_path)
-response = LLM2Jev(backend=backend).evaluate(request)
-print(response.to_dict())
-```
-
-The Transformers backend uses CUDA when available and otherwise falls back to CPU.
-
-## System One HTTP API
-
-`llm2jev-serve` adds `POST /v1/systemone` to SGLang's native HTTP server.
-SGLang continues to provide model listing, health checks, authentication, and
-its other native endpoints.
-
-```bash
-llm2jev-serve \
-  --model-path /path/to/model \
-  --served-model-name local-model \
-  --host 0.0.0.0 \
-  --port 30000 \
-  --api-key "$LLM2JEV_API_KEY"
-```
-
-List models through SGLang's native endpoint:
-
-```bash
-curl http://localhost:30000/v1/models \
-  -H "Authorization: Bearer $LLM2JEV_API_KEY"
-```
-
-Submit a System One request:
-
-```bash
-curl http://localhost:30000/v1/systemone \
-  -H "Authorization: Bearer $LLM2JEV_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state": "The customer package has not arrived.",
-    "model": "local-model",
-    "questions": {
-      "delivery": {
-        "type": "noul",
-        "instructions": "Is this a delivery issue?"
-      }
-    }
-  }'
-```
-
-The command accepts SGLang's normal server arguments. It currently requires
-the default single-tokenizer HTTP mode and does not support
-`--skip-tokenizer-init`.
+- [ ] More benchmarks across model sizes, datasets, and workloads, covering decision quality, latency, and throughput.
+- [ ] An interactive web demo for submitting questions and inspecting probabilities.
+- [ ] Multimodal model and input support.
+- [ ] More multimodal tasks and demos.
 
 ## Tests
 

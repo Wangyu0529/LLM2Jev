@@ -10,144 +10,57 @@ LLM2Jev 将本地语言模型适配为 Jev 风格的结构化决策模型。它�
 
 > LLM2Jev 是一个独立的开源项目，与 Jev 或 TypeSafe 没有关联，也未获得其认可或授权。
 
-## 安装
+## 快速开始
 
-克隆仓库：
+在配有受支持 NVIDIA GPU 的 Linux 环境中，使用 SGLang 运行本地模型：
 
 ```bash
 git clone https://github.com/Yinsongxu/LLM2Jev.git
 cd LLM2Jev
-```
-
-在配有受支持 NVIDIA GPU 的 Linux 环境中，推荐使用 SGLang 后端；它也会安装
-自身依赖的 Transformers：
-
-```bash
 uv sync --extra sglang
-```
-
-如果只需要 Transformers 后端：
-
-```bash
-uv sync --extra transformers
-```
-
-使用 pip 可编辑安装时，选择对应的 extra：
-
-```bash
-python -m pip install -e ".[sglang]"
-# 或者：python -m pip install -e ".[transformers]"
-```
-
-使用 uv 安装后，激活虚拟环境：
-
-```bash
 source .venv/bin/activate
+python examples/sglang_inference.py --model-path /path/to/model
 ```
 
-## 快速开始
+示例会提交 Choice、Score 和 Noul 三种问题，并将响应输出为 JSON。
+请将 `/path/to/model` 替换为本地 Hugging Face 兼容的因果语言模型目录。
 
-使用本地 Hugging Face 兼容的因果语言模型和受支持的 NVIDIA GPU 运行 SGLang 示例：
+## 核心特性
 
-```bash
-python examples/sglang_inference.py \
-  --model-path /path/to/model
-```
+- **结构化判断**：运行时定义 `Choice`、`Score` 和 `Noul` 问题，获得选项概率、加权分数或条件成立的概率；Choice 和 Score 还包含 confidence。
+- **从 logits 计算概率**：对每个候选进行独立的 yes/no 判断，由代码组装 JSON，无需 LLM 逐 token 生成回答。
+- **共享前缀缓存**：通过分阶段提交，在单次请求内复用 SGLang 的 Radix Cache，首次请求没有相关历史缓存时也能利用共享前缀。
 
-示例会提交项目支持的三种问题，并将响应输出为 JSON。
+所有候选共享 `state`，同一道题的候选还共享 `instructions`。LLM2Jev 先评分一个真实的 `criteria` 候选来建立前缀缓存，再提交能够复用它的其他候选。每个候选只评分一次，减少长输入、多候选场景中的重复计算。
 
-## 问题类型
+![候选分阶段评分，通过 SGLang Radix Cache 复用 state 和题目的 instructions。](assets/shared-prefix-stages.svg)
 
-- `Choice`：选择一个选项，并返回概率分布和置信度。
-- `Score`：按照有序等级进行评分，并返回加权分数、概率分布和置信度。
-- `Noul`：返回条件成立的概率。
+了解工作原理：[从 Jev Request 到 LLM Request](docs/request-to-model_zh.md) → [共享前缀设计](docs/shared-prefix-cache_zh.md)。
 
-## Python API
+## 安装
 
-```python
-from llm2jev import JevRequest, LLM2Jev, Noul, SGLangBackend
+环境要求、SGLang 与 Transformers 依赖，以及 uv、pip 安装方式见[安装指南](docs/installation_zh.md)。
 
-model_path = "/path/to/model"
-request = JevRequest(
-    state="客户的包裹一直没有送到。",
-    model=model_path,
-    questions={
-        "is_delivery_issue": Noul(
-            instructions="这是物流配送问题吗？",
-        )
-    },
-)
+## 使用入门
 
-if __name__ == "__main__":
-    with SGLangBackend(model_path) as backend:
-        response = LLM2Jev(backend=backend).evaluate(request)
-        print(response.to_dict())
-```
+完整示例见[使用指南](docs/usage_zh.md)：
 
-SGLang 会启动工作进程，因此入口需要 `if __name__ == "__main__":` 保护。
-上下文管理器会在退出时关闭引擎，`engine_kwargs` 可用于传入 SGLang 引擎配置。
+- [SGLang Python API](docs/usage_zh.md#sglang-python-api)
+- [Transformers 后端](docs/usage_zh.md#transformers-后端)
+- [System One HTTP API](docs/usage_zh.md#system-one-http-api)
+- [`staged` 与 `all` 的选择](docs/usage_zh.md#哪种方式更适合我的请求)
 
-## Transformers 后端
 
-在仅安装 Transformers 后端依赖的环境中运行示例：
+## Benchmarks
 
-```bash
-python examples/transformers_inference.py --model-path /path/to/model
-```
+[性能测评](docs/shared-prefix-benchmarks_zh.md)记录了 Qwen3-1.7B / RTX 5090 的测试条件、实测数据，以及冷缓存和热缓存下 `staged` 与 `all` 的比较。收益取决于输入长度、候选数量和缓存状态。
 
-同一个 `JevRequest` 可以直接交给 `TransformersBackend`：
+## Roadmap
 
-```python
-from llm2jev import LLM2Jev, TransformersBackend
-
-backend = TransformersBackend(model_path)
-response = LLM2Jev(backend=backend).evaluate(request)
-print(response.to_dict())
-```
-
-Transformers 后端会优先使用 CUDA；没有可用 GPU 时自动回退到 CPU。
-
-## System One HTTP API
-
-`llm2jev-serve` 在 SGLang 原生 HTTP 服务上增加 `POST /v1/systemone`。
-模型列表、健康检查、鉴权和其他端点仍由 SGLang 提供。
-
-```bash
-llm2jev-serve \
-  --model-path /path/to/model \
-  --served-model-name local-model \
-  --host 0.0.0.0 \
-  --port 30000 \
-  --api-key "$LLM2JEV_API_KEY"
-```
-
-查看 SGLang 原生模型列表：
-
-```bash
-curl http://localhost:30000/v1/models \
-  -H "Authorization: Bearer $LLM2JEV_API_KEY"
-```
-
-提交 System One 请求：
-
-```bash
-curl http://localhost:30000/v1/systemone \
-  -H "Authorization: Bearer $LLM2JEV_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state": "客户的包裹一直没有送到。",
-    "model": "local-model",
-    "questions": {
-      "delivery": {
-        "type": "noul",
-        "instructions": "这是物流配送问题吗？"
-      }
-    }
-  }'
-```
-
-服务复用 SGLang 的启动参数，目前要求使用默认的单 tokenizer HTTP 模式，
-且不能启用 `--skip-tokenizer-init`。
+- [ ] 更多 benchmark：覆盖不同模型规模、数据集和工作负载，评估判断质量、延迟与吞吐量。
+- [ ] 网页 demo：交互式提交问题并查看概率结果。
+- [ ] 支持多模态模型与输入。
+- [ ] 更多多模态任务及 demo。
 
 ## 测试
 

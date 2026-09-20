@@ -1,5 +1,3 @@
-docs/concepts.md
-docs/implementation-plan.md
 .venv/
 __pycache__/
 *.py[cod]
@@ -7,4 +5,5 @@ __pycache__/
 build/
 dist/
 models/
-docs
+/dev-docs/
+evaluation

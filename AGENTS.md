@@ -4,7 +4,7 @@
 
 This repository uses a Python `src` layout. Keep stable public imports in `src/llm2jev/__init__.py`. Protocol and domain objects live in `src/llm2jev/models/`; binary compilation, prompt rendering, normalization, and response assembly live in `src/llm2jev/inference/`. Shared internal JSON and probability helpers belong in `src/llm2jev/utils/`, not the public package API. Tests mirror these responsibilities under `tests/` using `test_<module>.py` names.
 
-Design documents live in `docs/`. Read `docs/concepts.md` for the target wire behavior, `docs/binary-question-design.md` for the binary-reranker approach, and `docs/implementation-plan.md` for status and sequencing. Update the plan when completing a stage or changing an architectural decision.
+User-facing documentation lives in `docs/` and is version-controlled. Internal design documents live in the ignored local `dev-docs/` directory. When available, read `dev-docs/concepts.md` for the target wire behavior, `dev-docs/binary-question-design.md` for the binary-reranker approach, and `dev-docs/implementation-plan.md` for status and sequencing. Update the local plan when completing a stage or changing an architectural decision; a fresh clone may not contain these internal documents.
 
 ## Build, Test, and Development Commands
 
