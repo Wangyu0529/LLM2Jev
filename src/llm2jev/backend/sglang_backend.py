@@ -106,7 +106,7 @@ class SGLangBackend:
             prompt_values,
             enable_thinking=self.enable_thinking,
         )
-        # SGLang 0.5.14 score() uses max_new_tokens=0 and returns next-token
+        # SGLang score() uses max_new_tokens=0 and returns next-token
         # label logprobs normalized over just the requested label IDs.
         result = self.engine.score(
             query=[],

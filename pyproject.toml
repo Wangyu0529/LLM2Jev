@@ -17,9 +17,14 @@ transformers = [
     "transformers>=4.51",
 ]
 sglang = [
-    "sglang==0.5.14; sys_platform == 'linux'",
-    # SGLang requires this prerelease; declaring it opts uv into resolving it.
-    "flash-attn-4==4.0.0b15; sys_platform == 'linux'",
+    "sglang; sys_platform == 'linux'",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    # SGLang 0.5.20 pins this prerelease; the constraint keeps uv's
+    # prerelease allowance local to that transitive dependency.
+    "cuda-tile==1.6.0rc5; sys_platform == 'linux'",
 ]
 
 [tool.setuptools.packages.find]

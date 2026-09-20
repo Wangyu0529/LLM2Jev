@@ -1,4 +1,8 @@
-# LLM2Jev
+  <p align="center">
+    <img src="assets/llm2jev-banner.jpeg" alt="LLM2Jev" width="100%">
+  </p>
+
+# LLM2Jev: Turn LLMs into Jev-Style Decision Models
 
 [简体中文](README_zh.md)
 
@@ -6,20 +10,47 @@ LLM2Jev adapts local language models to Jev-style structured decisions. It accep
 
 > LLM2Jev is an independent open-source project. It is not affiliated with or endorsed by Jev or TypeSafe.
 
-## Quick Start
+## Installation
 
-Clone the repository and install the project with its Transformers backend:
+Clone the repository:
 
 ```bash
 git clone https://github.com/Yinsongxu/LLM2Jev.git
 cd LLM2Jev
+```
+
+SGLang is the recommended backend on Linux with a supported NVIDIA GPU. It also
+installs its Transformers dependency:
+
+```bash
+uv sync --extra sglang
+```
+
+For a Transformers-only environment:
+
+```bash
 uv sync --extra transformers
 ```
 
-Run the example with a local Hugging Face-compatible causal language model:
+For an editable pip installation, use the corresponding extra:
 
 ```bash
-uv run --extra transformers python examples/transformers_inference.py \
+python -m pip install -e ".[sglang]"
+# Or: python -m pip install -e ".[transformers]"
+```
+
+After installing with uv, activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+## Quick Start
+
+Run the SGLang example with a local Hugging Face-compatible causal language model and a supported NVIDIA GPU:
+
+```bash
+python examples/sglang_inference.py \
   --model-path /path/to/model
 ```
 
@@ -34,7 +65,7 @@ The example submits all three supported question types and prints the response a
 ## Python API
 
 ```python
-from llm2jev import JevRequest, LLM2Jev, Noul, TransformersBackend
+from llm2jev import JevRequest, LLM2Jev, Noul, SGLangBackend
 
 model_path = "/path/to/model"
 request = JevRequest(
@@ -47,35 +78,34 @@ request = JevRequest(
     },
 )
 
+if __name__ == "__main__":
+    with SGLangBackend(model_path) as backend:
+        response = LLM2Jev(backend=backend).evaluate(request)
+        print(response.to_dict())
+```
+
+Use a main guard because SGLang launches worker processes. The context manager
+shuts down the engine on exit. Pass SGLang engine options through `engine_kwargs`.
+
+## Transformers Backend
+
+Run the example in the Transformers-only environment:
+
+```bash
+python examples/transformers_inference.py --model-path /path/to/model
+```
+
+Use `TransformersBackend` with the same `JevRequest`:
+
+```python
+from llm2jev import LLM2Jev, TransformersBackend
+
 backend = TransformersBackend(model_path)
 response = LLM2Jev(backend=backend).evaluate(request)
 print(response.to_dict())
 ```
 
 The Transformers backend uses CUDA when available and otherwise falls back to CPU.
-
-## SGLang Backend
-
-The optional SGLang backend runs on Linux with a supported NVIDIA GPU.
-
-```bash
-uv sync --locked --python 3.12 --extra sglang
-uv run --extra sglang python examples/sglang_inference.py --model-path /path/to/model
-```
-
-Use `SGLangBackend` with the same `JevRequest`:
-
-```python
-from llm2jev import LLM2Jev, SGLangBackend
-
-if __name__ == "__main__":
-    with SGLangBackend(model_path, engine_kwargs={"mem_fraction_static": 0.4}) as backend:
-        response = LLM2Jev(backend=backend).evaluate(request)
-```
-
-Use a main guard because SGLang launches worker processes. The context manager
-shuts down the engine on exit. Pass SGLang engine options through `engine_kwargs`;
-the example sets the GPU memory budget with `mem_fraction_static`.
 
 ## System One HTTP API
 
@@ -84,10 +114,11 @@ SGLang continues to provide model listing, health checks, authentication, and
 its other native endpoints.
 
 ```bash
-uv sync --locked --python 3.12 --extra sglang
-uv run --extra sglang llm2jev-serve \
+llm2jev-serve \
   --model-path /path/to/model \
   --served-model-name local-model \
+  --host 0.0.0.0 \
+  --port 30000 \
   --api-key "$LLM2JEV_API_KEY"
 ```
 
@@ -123,7 +154,7 @@ the default single-tokenizer HTTP mode and does not support
 ## Tests
 
 ```bash
-uv run python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
 
 ## License

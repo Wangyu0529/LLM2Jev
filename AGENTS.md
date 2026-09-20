@@ -8,7 +8,8 @@ Design documents live in `docs/`. Read `docs/concepts.md` for the target wire be
 
 ## Build, Test, and Development Commands
 
-- `uv sync --extra transformers` creates `.venv` and installs the package with its inference dependencies.
+- `uv sync --extra sglang` creates `.venv` and installs the SGLang backend.
+- `uv sync --extra transformers` installs the Transformers-only backend dependencies.
 - `uv run python -m unittest discover -s tests -v` runs the complete test suite.
 - `uv run python -m compileall -q src tests` recursively checks syntax for source and tests.
 - `uv build` verifies source and wheel package construction.
