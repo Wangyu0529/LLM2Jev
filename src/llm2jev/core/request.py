@@ -7,6 +7,7 @@ from typing import TypeAlias
 from .questions import Choice, Noul, Score
 from ..utils.json import is_json_content
 from .types import State
+from .multimodal import validate_multimodal
 
 
 Question: TypeAlias = Choice | Score | Noul
@@ -23,6 +24,7 @@ class JevRequest:
     def __post_init__(self) -> None:
         if not is_json_content(self.state):
             raise ValueError("state must be a string, JSON object, or JSON array")
+        validate_multimodal(self.state)
         if not isinstance(self.model, str) or not self.model.strip():
             raise ValueError("model must be a non-empty string")
 

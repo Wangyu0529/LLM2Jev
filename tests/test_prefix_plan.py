@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from llm2jev.backend.prefix_plan import staged_batches
+from llm2jev.backend.sglang.prefix_plan import staged_batches
 
 
 class PrefixPlanTests(unittest.TestCase):

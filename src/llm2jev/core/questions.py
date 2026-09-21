@@ -6,11 +6,13 @@ from typing import ClassVar
 
 from ..utils.json import is_json_content
 from .types import JSONContent
+from .multimodal import validate_multimodal
 
 
 def _validate_instructions(instructions: JSONContent | None) -> None:
     if instructions is not None and not is_json_content(instructions):
         raise ValueError("instructions must be a string, JSON object, JSON array, or None")
+    validate_multimodal(instructions)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

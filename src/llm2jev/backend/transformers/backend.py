@@ -4,10 +4,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from ..core.response import Usage
-from ..inference.prompt import ChatPrompt
-from .base import BinaryBackendOutput
-from .tokenization import _apply_chat_template, _single_token_id
+from ...core.response import Usage
+from ...inference.prompt import ChatPrompt
+from ..base import BinaryBackendOutput
+from .image_inputs import has_images, load_transformers_images, prepare_image_prompts
+from ..tokenization import _apply_chat_template, _single_token_id
 
 
 class TransformersBackend:
@@ -23,6 +24,7 @@ class TransformersBackend:
         no_label: str = "no",
         batch_size: int = 8,
         enable_thinking: bool = False,
+        multimodal: bool = False,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
@@ -39,10 +41,21 @@ class TransformersBackend:
         self.model_path = str(model_path)
         self.batch_size = batch_size
         self.enable_thinking = enable_thinking
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_path,
-            local_files_only=True,
-        )
+        self.processor = None
+        model_class = AutoModelForCausalLM
+        if multimodal:
+            from transformers import AutoModelForImageTextToText, AutoProcessor
+
+            self.processor = AutoProcessor.from_pretrained(
+                self.model_path, local_files_only=True,
+            )
+            self.tokenizer = self.processor.tokenizer
+            model_class = AutoModelForImageTextToText
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_path,
+                local_files_only=True,
+            )
         if self.tokenizer.pad_token_id is None:
             if self.tokenizer.eos_token_id is None:
                 raise ValueError("tokenizer must define a pad token or an EOS token")
@@ -65,7 +78,7 @@ class TransformersBackend:
             except AttributeError as error:
                 raise ValueError(f"unsupported dtype: {dtype}") from error
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = model_class.from_pretrained(
             self.model_path,
             **model_kwargs,
         )
@@ -83,30 +96,50 @@ class TransformersBackend:
         prompt_values = tuple(prompts)
         if not prompt_values:
             raise ValueError("prompts must not be empty")
+        contains_images = has_images(prompt_values)
+        if contains_images and self.processor is None:
+            raise ValueError("image prompts require TransformersBackend(multimodal=True)")
+
+        if contains_images:
+            rendered_images, image_batches = prepare_image_prompts(
+                self.processor, prompt_values, enable_thinking=self.enable_thinking,
+            )
+            image_batches = load_transformers_images(image_batches)
 
         yes_probabilities: list[float] = []
         input_tokens = 0
         for start in range(0, len(prompt_values), self.batch_size):
             batch = prompt_values[start : start + self.batch_size]
-            rendered = [
-                _apply_chat_template(
-                    self.tokenizer,
-                    prompt,
-                    enable_thinking=self.enable_thinking,
+            if contains_images:
+                images = [
+                    image for row in image_batches[start : start + self.batch_size]
+                    for image in row
+                ]
+                encoded = self.processor(
+                    text=rendered_images[start : start + self.batch_size],
+                    images=images or None,
+                    return_tensors="pt", padding=True, add_special_tokens=False,
                 )
-                for prompt in batch
-            ]
-            encoded = self.tokenizer(
-                rendered,
-                return_tensors="pt",
-                padding=True,
-                add_special_tokens=False,
-            )
+            else:
+                rendered = [
+                    _apply_chat_template(
+                        self.processor or self.tokenizer,
+                        prompt,
+                        enable_thinking=self.enable_thinking,
+                    )
+                    for prompt in batch
+                ]
+                encoded = self.tokenizer(
+                    rendered,
+                    return_tensors="pt",
+                    padding=True,
+                    add_special_tokens=False,
+                )
             input_tokens += int(encoded["attention_mask"].sum().item())
             model_inputs = {
                 name: tensor.to(self.device)
                 for name, tensor in encoded.items()
-                if name in {"input_ids", "attention_mask", "token_type_ids"}
+                if contains_images or name in {"input_ids", "attention_mask", "token_type_ids"}
             }
 
             with self._torch.inference_mode():

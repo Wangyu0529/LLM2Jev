@@ -6,6 +6,7 @@ from typing import Literal, TypeAlias
 from ..core.questions import Choice, Noul, Score
 from ..core.request import JevRequest
 from ..core.types import JSONContent, State
+from ..core.multimodal import validate_multimodal
 from ..utils.json import copy_json_content, is_json_content
 
 
@@ -31,6 +32,8 @@ class BinaryQuestion:
             raise ValueError("question_type must be choice, score, or noul")
         if not is_json_content(self.context):
             raise ValueError("context must be a string, JSON object, or JSON array")
+        validate_multimodal(self.context)
+        validate_multimodal(self.objective)
         for field, value in (
             ("objective", self.objective),
             ("condition", self.condition),

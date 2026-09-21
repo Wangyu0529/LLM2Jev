@@ -1,50 +1,14 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from ..core.response import Usage
-from ..inference.prompt import ChatPrompt
-from ..utils.probability import validate_probabilities
-from .base import BinaryBackendOutput
-from .prefix_plan import staged_batches
-from .tokenization import _apply_chat_template, _single_token_id
-
-
-def _encode_chat_prompts(
-    tokenizer: Any,
-    prompts: Sequence[ChatPrompt],
-    *,
-    enable_thinking: bool,
-) -> list[list[int]]:
-    rendered = [
-        _apply_chat_template(
-            tokenizer,
-            prompt,
-            enable_thinking=enable_thinking,
-        )
-        for prompt in prompts
-    ]
-    return tokenizer(rendered, add_special_tokens=False)["input_ids"]
-
-
-def _yes_probabilities(
-    scores: Sequence[Sequence[float]],
-    *,
-    expected_count: int,
-) -> tuple[float, ...]:
-    if len(scores) != expected_count:
-        raise ValueError("SGLang returned the wrong number of candidate scores")
-
-    probabilities: list[float] = []
-    for row in scores:
-        values = validate_probabilities(row)
-        if len(values) != 2 or not math.isclose(sum(values), 1.0, abs_tol=1e-6):
-            raise ValueError("SGLang must return a normalized no/yes pair")
-        probabilities.append(values[1])
-    return tuple(probabilities)
+from ...core.response import Usage
+from ...inference.prompt import ChatPrompt
+from ..base import BinaryBackendOutput
+from ..tokenization import _single_token_id
+from .scoring import prepare_score_batches, score_output
 
 
 class SGLangBackend:
@@ -107,34 +71,27 @@ class SGLangBackend:
         prompt_values = tuple(prompts)
         if not prompt_values:
             raise ValueError("prompts must not be empty")
-
-        input_ids = _encode_chat_prompts(
-            self.tokenizer,
-            prompt_values,
-            enable_thinking=self.enable_thinking,
+        batches = prepare_score_batches(
+            self.tokenizer, getattr(self.engine.tokenizer_manager, "processor", None),
+            prompt_values, enable_thinking=self.enable_thinking, submission=self.submission,
+            no_token_id=self.no_token_id, yes_token_id=self.yes_token_id,
         )
-        # SGLang score() uses max_new_tokens=0 and returns next-token
-        # label logprobs normalized over just the requested label IDs.
-        batches = (
-            staged_batches(input_ids)
-            if self.submission == "staged"
-            else [list(range(len(input_ids)))]
-        )
-        probabilities = [0.0] * len(input_ids)
-        for indices in batches:
-            result = self.engine.score(
-                query=[],
-                items=[input_ids[index] for index in indices],
-                label_token_ids=[self.no_token_id, self.yes_token_id],
-                apply_softmax=True,
+        probabilities = [0.0] * len(prompt_values)
+        input_tokens = 0
+        for indices, arguments in batches:
+            result = self.engine.generate(
+                prompt=arguments.pop("text"), **arguments,
             )
-            values = _yes_probabilities(result.scores, expected_count=len(indices))
-            for index, probability in zip(indices, values):
+            output = score_output(
+                result, expected_count=len(indices),
+                no_token_id=self.no_token_id, yes_token_id=self.yes_token_id,
+            )
+            for index, probability in zip(indices, output.yes_probabilities):
                 probabilities[index] = probability
-
+            input_tokens += output.usage.input_tokens
         return BinaryBackendOutput(
             yes_probabilities=probabilities,
-            usage=Usage(input_tokens=sum(map(len, input_ids)), output_tokens=0),
+            usage=Usage(input_tokens=input_tokens, output_tokens=0),
         )
 
     def close(self) -> None:

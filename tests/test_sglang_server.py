@@ -2,9 +2,10 @@ import io
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from llm2jev import Choice, JevRequest, Noul, Score
+from test_sglang_fakes import native_modules, score_result
 from llm2jev.sglang_server import (
     _evaluate_request,
     _parse_request,
@@ -65,6 +66,11 @@ class SystemOneRequestParsingTests(unittest.TestCase):
 
 
 class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        modules = patch.dict("sys.modules", native_modules())
+        modules.start()
+        self.addCleanup(modules.stop)
+
     async def test_scores_and_assembles_response(self) -> None:
         tokenizer = Mock()
         tokenizer.encode.side_effect = lambda label, **kwargs: {
@@ -75,15 +81,10 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
             "template:" + messages[-1]["content"]
         )
         tokenizer.return_value = {"input_ids": [[11, 12, 13], [11, 12, 14]]}
-        manager = SimpleNamespace(
-            tokenizer=tokenizer,
-            score_prompts=AsyncMock(
-                return_value=SimpleNamespace(
-                    scores=[[0.2, 0.8], [0.7, 0.3]],
-                    prompt_tokens=6,
-                )
-            ),
-        )
+        async def generate(request, raw_request):
+            yield [score_result(.8, 3), score_result(.3, 3)]
+
+        manager = SimpleNamespace(tokenizer=tokenizer, generate_request=Mock(side_effect=generate))
         request = JevRequest(
             state="Package delayed",
             model="local-model",
@@ -94,11 +95,15 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
 
         response = await _evaluate_request(request, manager, submission="all")
 
-        manager.score_prompts.assert_awaited_once_with(
-            [[11, 12, 13], [11, 12, 14]],
-            label_token_ids=[9, 7],
-            apply_softmax=True,
-        )
+        manager.generate_request.assert_called_once()
+        submitted, raw_request = manager.generate_request.call_args.args
+        self.assertEqual(submitted.input_ids, [[11, 12, 13], [11, 12, 14]])
+        self.assertIsNone(submitted.image_data)
+        self.assertEqual(submitted.token_ids_logprob, [9, 7])
+        self.assertEqual(submitted.sampling_params, {"max_new_tokens": 0})
+        self.assertEqual(submitted.logprob_start_len, -1)
+        self.assertTrue(submitted.return_logprob)
+        self.assertIsNone(raw_request)
         self.assertEqual(response.answers["department"].choice, "shipping")
         self.assertEqual(response.usage.input_tokens, 6)
         self.assertEqual(response.usage.output_tokens, 0)
@@ -110,18 +115,17 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
         tokenizer.encode.side_effect = lambda label, **kwargs: {"no": [9], "yes": [7]}[label]
         completed = []
 
-        async def score(batch, **kwargs):
+        async def generate(request, raw_request):
+            batch = request.input_ids
             if batch == [inputs[1], inputs[3]]:
                 self.assertEqual(completed, [0, 2])
             indices = [inputs.index(tokens) for tokens in batch]
             completed.extend(indices)
             yes = [0.1, 0.9, 0.8, 0.2]
-            return SimpleNamespace(
-                scores=[[1 - yes[index], yes[index]] for index in indices],
-                prompt_tokens=sum(map(len, batch)),
-            )
+            yield [score_result(yes[index], len(inputs[index])) for index in indices]
 
-        manager = SimpleNamespace(tokenizer=tokenizer, score_prompts=AsyncMock(side_effect=score))
+        tokenizer.return_value = {"input_ids": inputs}
+        manager = SimpleNamespace(tokenizer=tokenizer, generate_request=Mock(side_effect=generate))
         request = JevRequest(
             state="text",
             model="local-model",
@@ -130,13 +134,10 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
                 "severity": Score(criteria=["low", "high"]),
             },
         )
-        with patch("llm2jev.sglang_server._encode_chat_prompts", return_value=inputs):
-            response = await _evaluate_request(request, manager)
+        response = await _evaluate_request(request, manager)
 
-        self.assertEqual(manager.score_prompts.await_args_list, [
-            call([inputs[0], inputs[2]], label_token_ids=[9, 7], apply_softmax=True),
-            call([inputs[1], inputs[3]], label_token_ids=[9, 7], apply_softmax=True),
-        ])
+        self.assertEqual([call.args[0].input_ids for call in manager.generate_request.call_args_list],
+                         [[inputs[0], inputs[2]], [inputs[1], inputs[3]]])
         self.assertEqual(completed, [0, 2, 1, 3])
         self.assertEqual(response.answers["department"].choice, "billing")
         self.assertAlmostEqual(response.answers["severity"].score, 0.2)
@@ -150,14 +151,20 @@ class SystemOneEvaluationTests(unittest.IsolatedAsyncioTestCase):
             state="text", model="local-model",
             questions={"check": Choice(criteria={"a": None, "b": None})},
         )
-        manager = SimpleNamespace(
-            tokenizer=tokenizer,
-            score_prompts=AsyncMock(return_value=SimpleNamespace(scores=[], prompt_tokens=0)),
-        )
-        with patch("llm2jev.sglang_server._encode_chat_prompts", return_value=[[1, 2], [1, 3]]):
-            with self.assertRaisesRegex(ValueError, "wrong number"):
-                await _evaluate_request(request, manager)
-        manager.score_prompts.assert_awaited_once()
+        closed = []
+
+        async def generate(request, raw_request):
+            try:
+                yield []
+            finally:
+                closed.append(True)
+
+        tokenizer.return_value = {"input_ids": [[1, 2], [1, 3]]}
+        manager = SimpleNamespace(tokenizer=tokenizer, generate_request=Mock(side_effect=generate))
+        with self.assertRaisesRegex(ValueError, "wrong number"):
+            await _evaluate_request(request, manager)
+        manager.generate_request.assert_called_once()
+        self.assertEqual(closed, [True])
 
     async def test_route_uses_configured_submission(self) -> None:
         app = SimpleNamespace(state=SimpleNamespace(), routes=[], add_api_route=Mock())
