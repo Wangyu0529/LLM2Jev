@@ -2,13 +2,47 @@
     <img src="assets/llm2jev-banner.jpeg" alt="LLM2Jev" width="100%">
   </p>
 
+<div align="center">
+
 # LLM2Jev：将 LLM 转换为 Jev 风格的决策模型
+<br/>
+
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue?style=flat-square)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square)](LICENSE)
+[![Jev API](https://img.shields.io/badge/API-%2Fv1%2Fsystemone%20compatible-orange?style=flat-square)](docs/usage_zh.md)
 
 [English](README.md)
 
-LLM2Jev 将本地语言模型适配为 Jev 风格的结构化决策模型。它接受运行时定义的 `Choice`、`Score` 和 `Noul` 问题，并返回包含概率的类型化答案。
+**LLM2Jev 将本地语言模型适配为 Jev 风格的结构化决策模型。它接受运行时定义的 `Choice`、`Score` 和 `Noul` 问题，并返回包含概率的类型化答案。**
+
+
+
+
+
+</div>
+
 
 > LLM2Jev 是一个独立的开源项目，与 Jev 或 TypeSafe 没有关联，也未获得其认可或授权。
+
+## 核心特性
+
+- **结构化判断**：运行时定义 `Choice`、`Score` 和 `Noul` 问题，获得选项概率、加权分数或条件成立的概率。
+- **从 logits 计算概率**：对每个候选进行独立的 yes/no 判断，由代码组装 JSON，无需 LLM 逐 token 生成回答。
+- **选项顺序无关**：每个 Choice 候选都会独立评估，调整选项顺序不会引入位置偏好或改变各选项的分数。
+- **共享前缀缓存**：通过分阶段提交，在单次请求内复用 SGLang 的 Radix Cache，首次请求没有相关历史缓存时也能利用共享前缀。
+
+所有候选共享 `state`，同一道题的候选还共享 `instructions`。LLM2Jev 先评分一个真实的 `criteria` 候选来建立前缀缓存，再提交能够复用它的其他候选。每个候选只评分一次，减少长输入、多候选场景中的重复计算。
+
+![候选分阶段评分，通过 SGLang Radix Cache 复用 state 和题目的 instructions。](assets/shared-prefix-stages.svg)
+
+了解工作原理：[从 Jev Request 到 LLM Request](docs/request-to-model_zh.md) → [共享前缀设计](docs/shared-prefix-cache_zh.md)。
+
+## 最新动态
+
+- **9月21日** - **[网页和贪吃蛇 demo](#demos)**：新增用于组合多种问题和模型决策的交互式示例。
+- **9月21日** - **前缀复用**：新增分阶段候选提交以复用 SGLang Radix Cache，并提供[架构说明](docs/request-to-model_zh.md)、[使用文档](docs/shared-prefix-cache_zh.md)和[性能测评](docs/shared-prefix-benchmarks_zh.md)。
+- **9月20日** - **SGLang 与 System One API**：新增 SGLang 评分后端，以及兼容的 [`POST /v1/systemone`](docs/usage_zh.md#system-one-http-api) 接口。
+
 
 ## 快速开始
 
@@ -25,17 +59,6 @@ python examples/sglang_inference.py --model-path /path/to/model
 示例会提交 Choice、Score 和 Noul 三种问题，并将响应输出为 JSON。
 请将 `/path/to/model` 替换为本地 Hugging Face 兼容的因果语言模型目录。
 
-## 核心特性
-
-- **结构化判断**：运行时定义 `Choice`、`Score` 和 `Noul` 问题，获得选项概率、加权分数或条件成立的概率；Choice 和 Score 还包含 confidence。
-- **从 logits 计算概率**：对每个候选进行独立的 yes/no 判断，由代码组装 JSON，无需 LLM 逐 token 生成回答。
-- **共享前缀缓存**：通过分阶段提交，在单次请求内复用 SGLang 的 Radix Cache，首次请求没有相关历史缓存时也能利用共享前缀。
-
-所有候选共享 `state`，同一道题的候选还共享 `instructions`。LLM2Jev 先评分一个真实的 `criteria` 候选来建立前缀缓存，再提交能够复用它的其他候选。每个候选只评分一次，减少长输入、多候选场景中的重复计算。
-
-![候选分阶段评分，通过 SGLang Radix Cache 复用 state 和题目的 instructions。](assets/shared-prefix-stages.svg)
-
-了解工作原理：[从 Jev Request 到 LLM Request](docs/request-to-model_zh.md) → [共享前缀设计](docs/shared-prefix-cache_zh.md)。
 
 ## 安装
 
@@ -50,15 +73,28 @@ python examples/sglang_inference.py --model-path /path/to/model
 - [System One HTTP API](docs/usage_zh.md#system-one-http-api)
 - [`staged` 与 `all` 的选择](docs/usage_zh.md#哪种方式更适合我的请求)
 
+## Demos
 
-## Benchmarks
+<table>
+  <tr>
+    <td align="center" valign="middle" width="67%"><img src="assets/web-demo.gif" alt="LLM2Jev 网页 demo" width="100%"></td>
+    <td align="center" valign="middle" width="33%"><img src="assets/snake.gif" alt="LLM2Jev 贪吃蛇 demo" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="demos/web/README.md"><strong>网页 demo</strong></a></td>
+    <td align="center"><a href="demos/snake.py"><strong>贪吃蛇 demo</strong></a></td>
+  </tr>
+</table>
+
+
+## 性能测评
 
 [性能测评](docs/shared-prefix-benchmarks_zh.md)记录了 Qwen3-1.7B / RTX 5090 的测试条件、实测数据，以及冷缓存和热缓存下 `staged` 与 `all` 的比较。收益取决于输入长度、候选数量和缓存状态。
 
-## Roadmap
+## 近期规划
 
 - [ ] 更多 benchmark：覆盖不同模型规模、数据集和工作负载，评估判断质量、延迟与吞吐量。
-- [ ] 网页 demo：交互式提交问题并查看概率结果。
+- [x] 网页 demo：交互式提交问题并查看概率结果。
 - [ ] 支持多模态模型与输入。
 - [ ] 更多多模态任务及 demo。
 
