@@ -26,6 +26,7 @@
 
 ## 📰 最新动态
 
+- **9月23日** - **[MuJoCo 机械臂抓取放置 demo](demos/pick_place/README.md)**：新增由 LLM2Jev 逐步决策控制仿真 Panda 机械臂的演示。
 - **9月22日** - **[多模态输入](docs/multimodal_zh.md)**：SGLang、Transformers 和 System One HTTP API 均支持图文请求。
 - **9月21日** - **[网页和贪吃蛇 demo](#demos)**：新增用于组合多种问题和模型决策的交互式示例。
 - **9月21日** - **冷启动前缀复用**：新增分阶段候选提交以复用 SGLang Radix Cache，并提供[架构说明](docs/request-to-model_zh.md)、[使用文档](docs/shared-prefix-cache_zh.md)和[性能测评](docs/shared-prefix-benchmarks_zh.md)。
@@ -89,6 +90,10 @@ python examples/sglang_inference.py --model-path /path/to/model
   <tr>
     <td align="center"><a href="demos/web/README.md"><strong>网页 demo</strong></a></td>
     <td align="center"><a href="demos/snake.py"><strong>贪吃蛇 demo</strong></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle"><video src="assets/mujoco.mp4" controls width="100%"></video><br><a href="demos/pick_place/README.md"><strong>MuJoCo 机械臂抓取放置 demo</strong></a></td>
+    <td></td>
   </tr>
 </table>
 

@@ -22,6 +22,7 @@
 
 ## 📰 News
 
+- **September 23** - **[MuJoCo pick-and-place demo](demos/pick_place/README.md):** added LLM2Jev control of a simulated Panda arm with per-step decision.
 - **September 22** - **[Multimodal inputs](docs/multimodal.md):** added text-and-image requests for SGLang, Transformers, and the System One HTTP API.
 - **September 21** - **[Web and Snake demos](#demos):** added interactive examples for composing mixed questions and model-driven decisions.
 - **September 21** - **Prefix reuse on cold requests:** added staged candidate submission for reusing SGLang's Radix Cache, with [architecture](docs/request-to-model.md), [usage](docs/shared-prefix-cache.md), and [benchmark](docs/shared-prefix-benchmarks.md) documentation.
@@ -81,6 +82,10 @@ See the [Usage guide](docs/usage.md) for complete examples:
   <tr>
     <td align="center"><a href="demos/web/README.md"><strong>Web demo</strong></a></td>
     <td align="center"><a href="demos/snake.py"><strong>Snake demo</strong></a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="middle"><video src="assets/mujoco.mp4" controls width="100%"></video><br><a href="demos/pick_place/README.md"><strong>MuJoCo pick-and-place demo</strong></a></td>
+    <td></td>
   </tr>
 </table>
 
