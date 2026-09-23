@@ -105,6 +105,10 @@ See the [Usage guide](docs/usage.md) for complete examples:
     <td align="center"><a href="demos/web/README.md"><strong>Web demo</strong></a></td>
     <td align="center"><a href="demos/snake.py"><strong>Snake demo</strong></a></td>
   </tr>
+  <tr>
+    <td align="center" valign="middle"><video src="assets/mujoco.mp4" controls width="100%"></video><br><a href="demos/pick_place/README.md"><strong>MuJoCo pick-and-place demo</strong></a></td>
+    <td></td>
+  </tr>
 </table>
 
 

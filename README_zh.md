@@ -113,6 +113,10 @@ uv run --extra mlx --extra server llm2jev-serve \
     <td align="center"><a href="demos/web/README.md"><strong>网页 demo</strong></a></td>
     <td align="center"><a href="demos/snake.py"><strong>贪吃蛇 demo</strong></a></td>
   </tr>
+  <tr>
+    <td align="center" valign="middle"><video src="assets/mujoco.mp4" controls width="100%"></video><br><a href="demos/pick_place/README.md"><strong>MuJoCo 机械臂抓取放置 demo</strong></a></td>
+    <td></td>
+  </tr>
 </table>
 
 
